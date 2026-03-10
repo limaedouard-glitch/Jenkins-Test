@@ -2,22 +2,22 @@ pipeline {
     agent any
 
     environment {
-        // Chemin vers Maven installé dans Jenkins (nom configuré dans Global Tool Configuration)
-        MVN_HOME = tool 'maven-3.9.13'
-        // Docker va utiliser le socket de l'hôte
-        DOCKER_HOST = 'unix:///var/run/docker.sock'
+        // On suppose que Maven et Docker sont configurés dans Jenkins sous ces noms
+        MVN_HOME = tool name: 'maven-3.9.13', type: 'maven'
+        DOCKER_HOME = tool name: 'MyDocker', type: 'docker'
+        PATH = "${env.MVN_HOME}/bin:${env.DOCKER_HOME}/bin:${env.PATH}"
     }
 
     stages {
         stage('Clone Repo') {
             steps {
-                git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
+                git url: 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
             }
         }
 
-        stage('Build with Maven') {
+        stage('Build Project') {
             steps {
-                sh "'${MVN_HOME}/bin/mvn' -B -DskipTests clean package"
+                sh "${env.MVN_HOME}/bin/mvn -B -DskipTests clean package"
             }
         }
 
@@ -26,14 +26,16 @@ pipeline {
                 script {
                     def dockerImageTag = "devopsexample:${env.BUILD_NUMBER}"
                     sh "docker build -t ${dockerImageTag} ."
-                    env.DOCKER_IMAGE_TAG = dockerImageTag
                 }
             }
         }
 
         stage('Run Docker Container') {
             steps {
-                sh "docker run --rm --name devopsexample -d -p 2222:2222 ${env.DOCKER_IMAGE_TAG}"
+                script {
+                    def dockerImageTag = "devopsexample:${env.BUILD_NUMBER}"
+                    sh "docker run --name devopsexample -d -p 2222:2222 ${dockerImageTag}"
+                }
             }
         }
     }
@@ -41,6 +43,9 @@ pipeline {
     post {
         always {
             echo "Pipeline terminé !"
+        }
+        failure {
+            echo "Le build a échoué !"
         }
     }
 }
