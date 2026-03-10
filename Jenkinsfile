@@ -1,76 +1,27 @@
-pipeline {
-    agent {
-        kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: maven
-    image: maven:3.9.9-eclipse-temurin-17
-    command:
-    - cat
-    tty: true
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:latest
-    command:
-    - cat
-    tty: true
-"""
-        }
+node {
+    def mvnHome = tool 'maven-3.9.13'
+    def dockerImage
+    def dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
+    
+    stage('Clone Repo') {
+      git 'https://github.com/rhmanou/Jenkins-Test.git'
+    }    
+  
+    stage('Build Project') {
+      sh "'${mvnHome}/bin/mvn' -B -DskipTests clean package"
     }
-
-    environment {
-        dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
-        DOCKER_REGISTRY = "localhost:5000" // ou ton registre Minikube local
+    
+    stage('Initialize Docker'){         
+	  def dockerHome = tool 'MyDocker'         
+	  env.PATH = "${dockerHome}/bin:${env.PATH}"     
     }
-
-    stages {
-        stage('Clone Repo') {
-            steps {
-                container('maven') {
-                    git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
-                }
-            }
-        }
-
-        stage('Build Project') {
-            steps {
-                container('maven') {
-                    sh 'mvn -B -DskipTests clean package'
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                container('kaniko') {
-                    sh """
-                    /kaniko/executor \\
-                        --dockerfile=Dockerfile \\
-                        --context=${WORKSPACE} \\
-                        --destination=${DOCKER_REGISTRY}/${dockerImageTag} \\
-                        --insecure
-                    """
-                }
-            }
-        }
-
-        stage('Deploy Docker Image') {
-            steps {
-                // Optionnel : utiliser kubectl pour créer un pod/deployment avec cette image
-                sh """
-                kubectl run devopsexample-${BUILD_NUMBER} \\
-                    --image=${DOCKER_REGISTRY}/${dockerImageTag} \\
-                    --port=2222
-                """
-            }
-        }
+    
+    stage('Build Docker Image') {
+      sh "docker -H tcp://192.168.8.100:2375 build -t devopsexample:${env.BUILD_NUMBER} ."
     }
-
-    post {
-        always {
-            echo "Pipeline terminé ! Image: ${dockerImageTag}"
-        }
+    
+    stage('Deploy Docker Image'){
+      	echo "Docker Image Tag Name: ${dockerImageTag}"
+	sh "docker -H tcp://192.168.8.100:2375 run --name devopsexample -d -p 2222:2222 devopsexample:${env.BUILD_NUMBER}"
     }
 }
