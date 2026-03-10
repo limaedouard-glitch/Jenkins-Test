@@ -1,13 +1,11 @@
 pipeline {
-    agent {
-        docker {
-            image 'maven:3.9.13-eclipse-temurin-8' // Maven + JDK 8
-            args '-v $HOME/.m2:/root/.m2'          // pour cache Maven
-        }
-    }
+    agent any
 
     environment {
-        DOCKER_HOST = "tcp://192.168.1.181:2375"
+        // Chemin vers Maven installé dans Jenkins (nom configuré dans Global Tool Configuration)
+        MVN_HOME = tool 'maven-3.9.13'
+        // Docker va utiliser le socket de l'hôte
+        DOCKER_HOST = 'unix:///var/run/docker.sock'
     }
 
     stages {
@@ -17,39 +15,25 @@ pipeline {
             }
         }
 
-        stage('Build Project') {
+        stage('Build with Maven') {
             steps {
-                // Maven compile + package, tests ignorés
-                sh "mvn -B -DskipTests clean package"
-            }
-        }
-
-        stage('Initialize Docker') {
-            steps {
-                script {
-                    // Si Docker est configuré dans Jenkins comme tool
-                    def dockerHome = tool 'MyDocker'
-                    env.PATH = "${dockerHome}/bin:${env.PATH}"
-                }
+                sh "'${MVN_HOME}/bin/mvn' -B -DskipTests clean package"
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    def dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
+                    def dockerImageTag = "devopsexample:${env.BUILD_NUMBER}"
                     sh "docker build -t ${dockerImageTag} ."
+                    env.DOCKER_IMAGE_TAG = dockerImageTag
                 }
             }
         }
 
-        stage('Deploy Docker Image') {
+        stage('Run Docker Container') {
             steps {
-                script {
-                    def dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
-                    echo "Docker Image Tag Name: ${dockerImageTag}"
-                    sh "docker run --name devopsexample -d -p 2222:2222 ${dockerImageTag}"
-                }
+                sh "docker run --rm --name devopsexample -d -p 2222:2222 ${env.DOCKER_IMAGE_TAG}"
             }
         }
     }
