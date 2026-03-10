@@ -1,47 +1,76 @@
 pipeline {
     agent {
-        docker {
-            image 'maven:3.9.9-eclipse-temurin-17'
-            args '--privileged -v /var/run/docker.sock:/var/run/docker.sock'
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: maven
+    image: maven:3.9.9-eclipse-temurin-17
+    command:
+    - cat
+    tty: true
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:latest
+    command:
+    - cat
+    tty: true
+"""
         }
     }
 
     environment {
         dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
+        DOCKER_REGISTRY = "localhost:5000" // ou ton registre Minikube local
     }
 
     stages {
         stage('Clone Repo') {
             steps {
-                git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
+                container('maven') {
+                    git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
+                }
             }
         }
 
         stage('Build Project') {
             steps {
-                sh 'mvn -B -DskipTests clean package'
+                container('maven') {
+                    sh 'mvn -B -DskipTests clean package'
+                }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${dockerImageTag} ."
+                container('kaniko') {
+                    sh """
+                    /kaniko/executor \\
+                        --dockerfile=Dockerfile \\
+                        --context=${WORKSPACE} \\
+                        --destination=${DOCKER_REGISTRY}/${dockerImageTag} \\
+                        --insecure
+                    """
+                }
             }
         }
 
         stage('Deploy Docker Image') {
             steps {
-                echo "Docker Image Tag: ${dockerImageTag}"
-                // Si un container du même nom existe déjà, on le supprime
-                sh "docker rm -f devopsexample || true"
-                sh "docker run --name devopsexample -d -p 2222:2222 ${dockerImageTag}"
+                // Optionnel : utiliser kubectl pour créer un pod/deployment avec cette image
+                sh """
+                kubectl run devopsexample-${BUILD_NUMBER} \\
+                    --image=${DOCKER_REGISTRY}/${dockerImageTag} \\
+                    --port=2222
+                """
             }
         }
     }
 
     post {
         always {
-            echo 'Pipeline terminé !'
+            echo "Pipeline terminé ! Image: ${dockerImageTag}"
         }
     }
 }
