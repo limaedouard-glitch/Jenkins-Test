@@ -1,27 +1,47 @@
-node {
-    def mvnHome = tool 'maven-3.5.2'
-    def dockerImage
-    def dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
-    
-    stage('Clone Repo') {
-      git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
-    }    
-  
-    stage('Build Project') {
-      sh "'${mvnHome}/bin/mvn' -B -DskipTests clean package"
+pipeline {
+    agent {
+        docker {
+            image 'maven:3.9.9-eclipse-temurin-17'
+            args '--privileged -v /var/run/docker.sock:/var/run/docker.sock'
+        }
     }
-    
-    stage('Initialize Docker'){         
-	  def dockerHome = tool 'MyDocker'         
-	  env.PATH = "${dockerHome}/bin:${env.PATH}"     
+
+    environment {
+        dockerImageTag = "devopsexample${env.BUILD_NUMBER}"
     }
-    
-    stage('Build Docker Image') {
-      sh "docker -H tcp://192.168.1.181:2375 build -t devopsexample:${env.BUILD_NUMBER} ."
+
+    stages {
+        stage('Clone Repo') {
+            steps {
+                git 'https://github.com/limaedouard-glitch/Jenkins-Test.git'
+            }
+        }
+
+        stage('Build Project') {
+            steps {
+                sh 'mvn -B -DskipTests clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${dockerImageTag} ."
+            }
+        }
+
+        stage('Deploy Docker Image') {
+            steps {
+                echo "Docker Image Tag: ${dockerImageTag}"
+                // Si un container du même nom existe déjà, on le supprime
+                sh "docker rm -f devopsexample || true"
+                sh "docker run --name devopsexample -d -p 2222:2222 ${dockerImageTag}"
+            }
+        }
     }
-    
-    stage('Deploy Docker Image'){
-      	echo "Docker Image Tag Name: ${dockerImageTag}"
-	sh "docker -H tcp://192.168.1.181:2375 run --name devopsexample -d -p 2222:2222 devopsexample:${env.BUILD_NUMBER}"
+
+    post {
+        always {
+            echo 'Pipeline terminé !'
+        }
     }
 }
